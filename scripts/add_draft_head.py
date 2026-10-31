@@ -3,6 +3,7 @@
 The draft head comes from the MLX training code (safetensors): fc [n_embd, 2*n_embd], one SwiGLU block
 (blocks.0.norm, gate, up, down) and a final RMSNorm. llama.cpp with apple5-lfm3.patch runs it in the same graph
 as the verify step when the context outputs nextn embeddings. Matrices are stored as Q8_0 (or Q4_0), norms as F32.
+general.description of the copy names the added draft head.
 Needs numpy and the gguf-py of a llama.cpp checkout ($LLAMA_CPP_DIR, default llama.cpp/).
 
 Usage: python3 add_draft_head.py in.gguf draft.safetensors out.gguf [q8_0|q4_0]
@@ -25,8 +26,11 @@ LLAMA_CPP_DIR = Path(
 )
 sys.path.insert(0, str(LLAMA_CPP_DIR / "gguf-py"))
 
-import gguf
-import numpy as np
+try:
+    import gguf
+    import numpy as np
+except ModuleNotFoundError as e:
+    sys.exit(f"{e}: install numpy and run scripts/setup.sh (or set LLAMA_CPP_DIR)")
 
 # GGUF tensor name: (safetensors name, quantize)
 DRAFT = {
@@ -65,6 +69,9 @@ def main() -> None:
     src, weights, dst = sys.argv[1], sys.argv[2], sys.argv[3]
     if Path(src).resolve() == Path(dst).resolve():
         sys.exit("out.gguf must differ from in.gguf")
+    for path in (src, weights):
+        if not Path(path).is_file():
+            sys.exit(f"{path}: file not found")
     qname = sys.argv[4] if len(sys.argv) > 4 else "q8_0"
     qtype = {
         "q8_0": gguf.GGMLQuantizationType.Q8_0,
@@ -77,16 +84,25 @@ def main() -> None:
         sys.exit("the input needs output_sketch.weight (scripts/add_output_sketch.py)")
     arch = reader.fields[gguf.Keys.General.ARCHITECTURE].contents()
     writer = gguf.GGUFWriter(dst, arch=arch, endianess=reader.endianess)
+    note = f"Added: speculative-decoding draft head (draft_*, {qname.upper()})."
     for field in reader.fields.values():
         if field.name == gguf.Keys.General.ARCHITECTURE or field.name.startswith(
             "GGUF."
         ):
             continue
+        value = field.contents()
+        if field.name == gguf.Keys.General.DESCRIPTION:
+            value, note = f"{value} {note}", None
         vt = field.types[0]
         sub = field.types[-1] if vt == gguf.GGUFValueType.ARRAY else None
-        writer.add_key_value(field.name, field.contents(), vt, sub_type=sub)
+        writer.add_key_value(field.name, value, vt, sub_type=sub)
+    if note:
+        writer.add_description(note)
 
     st = read_safetensors(weights)
+    missing = [key for key, _ in DRAFT.values() if key not in st]
+    if missing:
+        sys.exit(f"{weights}: missing tensors {', '.join(missing)}")
     draft = []
     for name, (key, quant) in DRAFT.items():
         w = np.ascontiguousarray(st[key])

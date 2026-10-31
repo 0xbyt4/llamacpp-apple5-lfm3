@@ -3,7 +3,8 @@
 llama.cpp with apple5-lfm3.patch uses the sketch when the file has it: for each of up to 8 output rows it ranks the
 vocabulary with the sketch and computes exact logits only for the best candidates and the most common token ids.
 q1_0 as in quantize_row_q1_0_ref: per 128 values, d = mean |w| (f16) and bit j set when w_j >= 0.
-The source token_embd must be Q8_0.
+The source token_embd must be Q8_0. The copy is marked as modified: general.name gets " Apple5" and
+general.description names the changes.
 Needs numpy and the gguf-py of a llama.cpp checkout ($LLAMA_CPP_DIR, default llama.cpp/).
 
 Usage: python3 add_output_sketch.py in.gguf out.gguf
@@ -24,8 +25,11 @@ LLAMA_CPP_DIR = Path(
 )
 sys.path.insert(0, str(LLAMA_CPP_DIR / "gguf-py"))
 
-import gguf
-import numpy as np
+try:
+    import gguf
+    import numpy as np
+except ModuleNotFoundError as e:
+    sys.exit(f"{e}: install numpy and run scripts/setup.sh (or set LLAMA_CPP_DIR)")
 
 
 def main() -> None:
@@ -34,17 +38,32 @@ def main() -> None:
     src, dst = sys.argv[1], sys.argv[2]
     if Path(src).resolve() == Path(dst).resolve():
         sys.exit("out.gguf must differ from in.gguf")
+    if not Path(src).is_file():
+        sys.exit(f"{src}: file not found")
     reader = gguf.GGUFReader(src)
+    if any(t.name == "output_sketch.weight" for t in reader.tensors):
+        sys.exit("the input already has output_sketch.weight")
     arch = reader.fields[gguf.Keys.General.ARCHITECTURE].contents()
     writer = gguf.GGUFWriter(dst, arch=arch, endianess=reader.endianess)
+    note = (
+        "Modified for llama.cpp with the llamacpp-apple5-lfm3 patch."
+        " Token embeddings: Q8_0. Added: output_sketch.weight (Q1_0)."
+    )
     for field in reader.fields.values():
         if field.name == gguf.Keys.General.ARCHITECTURE or field.name.startswith(
             "GGUF."
         ):
             continue
+        value = field.contents()
+        if field.name == gguf.Keys.General.NAME:
+            value += " Apple5"
+        elif field.name == gguf.Keys.General.DESCRIPTION:
+            value, note = f"{value} {note}", None
         vt = field.types[0]
         sub = field.types[-1] if vt == gguf.GGUFValueType.ARRAY else None
-        writer.add_key_value(field.name, field.contents(), vt, sub_type=sub)
+        writer.add_key_value(field.name, value, vt, sub_type=sub)
+    if note:
+        writer.add_description(note)
 
     emb = next(t for t in reader.tensors if t.name == "token_embd.weight")
     if emb.tensor_type != gguf.GGMLQuantizationType.Q8_0:
