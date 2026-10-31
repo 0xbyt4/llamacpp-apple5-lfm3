@@ -2396,6 +2396,24 @@ index 455f519..ec3dd34 100644
  float * llama_get_embeddings_ith(llama_context * ctx, int32_t i) {
      ctx->synchronize();
  
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+index a963f24..0d98ec4 100644
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1207,6 +1207,13 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+             op = info.op;
+         }
+ 
++        // with an output sketch (LFM3), the graph also reads rows of the output matrix with GET_ROWS (the candidate
++        // logits and the draft head), so the matrix must not go to a buffer type that supports only MUL_MAT, e.g. CPU
++        // repack
++        if (tn_tensor == LLM_TENSOR_OUTPUT && get_tensor_meta("output_sketch.weight")) {
++            op = GGML_OP_GET_ROWS;
++        }
++
+         // sanity checks
+         if (info.layer == LLM_TENSOR_LAYER_INPUT || info.layer == LLM_TENSOR_LAYER_OUTPUT) {
+             if (tn.bid != -1) {
 diff --git a/src/llama-model.h b/src/llama-model.h
 index 222238e..fd9293d 100644
 --- a/src/llama-model.h
@@ -2417,7 +2435,7 @@ index 222238e..fd9293d 100644
  
  
 diff --git a/src/models/lfm3.cpp b/src/models/lfm3.cpp
-index 77eabc4..9c67a8e 100644
+index 77eabc4..97d0604 100644
 --- a/src/models/lfm3.cpp
 +++ b/src/models/lfm3.cpp
 @@ -25,7 +25,7 @@ void llama_model_lfm3::load_arch_hparams(llama_model_loader & ml) {
@@ -2551,7 +2569,7 @@ index 77eabc4..9c67a8e 100644
  
 -    cur = build_lora_mm(model.output, cur, model.output_s);
 +    if (model.output_sketch && n_outputs >= 1 && n_outputs <= 8) {
-+        // The sketch (sign bits and a scale per 128 weights, 36 MB instead of the 278 MB of output) ranks the
++        // The sketch (sign bits and a scale per 128 weights, 37 MB instead of the 278 MB of output) ranks the
 +        // vocabulary. Exact logits go only to the n_cand best tokens and to the first n_low token ids, which are the
 +        // most common pieces; all other tokens get -inf. The exact top-50 that the sampler sees stays the same in
 +        // almost all positions. Each output row (a few in a speculative-decoding verify step) has its own candidates.
