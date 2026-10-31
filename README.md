@@ -58,7 +58,7 @@ The patch selects the compat kernels for every GPU without SIMD-group reduction.
 - SOFT_MAX on the compat path uses more threads for few long rows. This makes attention faster at long contexts.
 - Residency keep-alive changes, for apps that go to the background:
   - Upstream wakes the keep-alive thread every 5 ms. With the patch, the thread stops when the keep-alive time after the last graph computation ends (default 3 minutes, `GGML_METAL_RESIDENCY_KEEP_ALIVE_S`). It waits for the next graph computation.
-  - The new function `ggml_backend_metal_residency_idle()` stops the keep-alive until the next graph computation. Call it when an iOS app goes to the background. A background iOS app must not submit GPU work.
+  - The new function `ggml_backend_metal_residency_idle()` stops the keep-alive until the next graph computation. An iOS app can call it when it goes to the background. Then the thread stops at once, not at the end of the keep-alive time. The lfm3-ipad app does not call it. It only stops the generation when it goes to the background, because iOS stops GPU work of background apps.
 
 ### LFM3 changes
 
@@ -101,6 +101,7 @@ For an iOS app, set these variables in the Xcode scheme: Product > Scheme > Edit
 ## Requirements
 
 - A Mac with Xcode. For the iOS build, the iOS SDK must be installed. The xcframework needs iOS 16.4 or later.
+- After you install Xcode, open it once and accept the license. `xcode-select -p` must show the Xcode directory, not the Command Line Tools. Else run `sudo xcode-select -s /Applications/Xcode.app`. The iOS build uses the Xcode CMake generator.
 - CMake 3.28 or later (`brew install cmake`).
 - git.
 - For the model scripts: Python 3.10 or later and numpy.
@@ -129,7 +130,7 @@ The patch applies only to this commit. On other commits, the patch can fail to a
 
 1. Go into the patched llama.cpp directory: `cd llama.cpp`.
 2. Run `./build-xcframework.sh ios-device`.
-3. Link `build-apple/llama.xcframework` into your app.
+3. Add `build-apple/llama.xcframework` to your app target with "Embed & Sign". The framework is dynamic. If you only link it, the app stops at launch with `Library not loaded`.
 
 ### Build for macOS
 
@@ -147,7 +148,12 @@ If the configure step fails, see "Troubleshooting".
 
 ### Run a model on a Mac
 
-1. Get a model file: download it from Hugging Face or prepare it (see "Prepare a model").
+1. Get a model file: download it from Hugging Face or prepare it (see "Prepare a model"). To download it with the Hugging Face CLI (`brew install hf` or `pip install -U huggingface_hub`):
+
+   ```
+   hf download 0xbyt4/LFM3-1.7B-Apple5-GGUF LFM3-1.7B-QAD-Q4_0-embQ8-sketch.gguf --local-dir .
+   ```
+
 2. Run the model on the compat path:
 
    ```
@@ -201,7 +207,7 @@ The scripts use the `gguf` package from the llama.cpp checkout (`gguf-py`). They
    .venv/bin/python scripts/add_draft_head.py LFM3-1.7B-QAD-Q4_0-embQ8-sketch.gguf draft.safetensors LFM3-1.7B-QAD-Q4_0-embQ8-sketch-draftq4.gguf q4_0
    ```
 
-   You can use any file name. With Spec on, the chat app of lfm3-ipad selects a file with `draftq4` in its name first.
+   For the chat app of lfm3-ipad, the file name must contain `draft`. The app finds a draft head only by this name. With Spec on, it selects a file with `draftq4` in its name first.
 
 The safetensors file must have the F32 tensors `fc.weight` [n_embd, 2*n_embd], `blocks.0.norm.weight`, `blocks.0.gate.weight`, `blocks.0.up.weight`, `blocks.0.down.weight` and `norm.weight`. This repository does not include the training code, the training data or the safetensors file of the draft head. Without a `draft.safetensors` file, skip step 7. The Hugging Face repository has a file with the draft head.
 
@@ -258,6 +264,7 @@ The prompt speed was 201 tok/s (198.5-202.9), from 72 prompts of 512 tokens in t
 ## Troubleshooting
 
 - **The CMake configure step fails with `tapi error: malformed file ... unknown architecture`.** The Command Line Tools SDK is newer than the Xcode linker. Run `export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)`. Then configure again. You can use the same build directory. The iOS build (`build-xcframework.sh`) works with this variable set.
+- **`You have not agreed to the Xcode license agreements`.** Run `sudo xcodebuild -license accept`, or open Xcode and accept the license.
 - **The model does not load: `wrong number of tensors`.** The llama.cpp build does not have the patch. Use a build of the patched llama.cpp.
 - **`No module named 'numpy'` or `No module named 'gguf'`.** Use `.venv/bin/python` (see "Prepare a model"). Run `scripts/setup.sh` first, or set `LLAMA_CPP_DIR` to a llama.cpp checkout.
 - **`git apply` fails.** The llama.cpp checkout is not at the base commit `338fce6511c744893cc0d3d958b275f40552c7a4`, or it has local changes.
