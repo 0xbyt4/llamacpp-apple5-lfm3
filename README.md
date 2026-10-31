@@ -127,7 +127,9 @@ If the configure or link step fails with `tapi error: malformed file ... unknown
 
 ## Prepare a model
 
-The source model is `LFM3-1.7B-QAD-Q4_0.gguf` from [LiquidAI/LFM3-1.7B-GGUF](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF). The model has its own license. Read it on the model page.
+The prepared files are on Hugging Face: [0xbyt4/LFM3-1.7B-Apple5-GGUF](https://huggingface.co/0xbyt4/LFM3-1.7B-Apple5-GGUF). The repository has the model with the output sketch and a copy with the Q4_0 draft head. To use these files, skip this section.
+
+To prepare the files yourself, follow the steps below. The source model is `LFM3-1.7B-QAD-Q4_0.gguf` from [LiquidAI/LFM3-1.7B-GGUF](https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF). The model has its own license. Read it on the model page.
 
 The scripts need Python 3.10 or later and numpy. To install numpy in a virtual environment, run `python3 -m venv .venv` and `.venv/bin/pip install numpy`. Then use `.venv/bin/python` instead of `python3` in the commands below. They use the `gguf` package from the llama.cpp checkout (`gguf-py`). They look for llama.cpp in `llama.cpp/` in this repository. To use another directory, set `LLAMA_CPP_DIR`.
 
@@ -166,7 +168,7 @@ The scripts need Python 3.10 or later and numpy. To install numpy in a virtual e
 
    For `q4_0`, put `draftq4` in the output name. The chat app of lfm3-ipad selects this file first.
 
-The safetensors file must have the F32 tensors `fc.weight` [n_embd, 2*n_embd], `blocks.0.norm.weight`, `blocks.0.gate.weight`, `blocks.0.up.weight`, `blocks.0.down.weight` and `norm.weight`. This repository does not include the training code or the training data of the draft head. Without a `draft.safetensors` file, skip step 7.
+The safetensors file must have the F32 tensors `fc.weight` [n_embd, 2*n_embd], `blocks.0.norm.weight`, `blocks.0.gate.weight`, `blocks.0.up.weight`, `blocks.0.down.weight` and `norm.weight`. This repository does not include the training code, the training data or the safetensors file of the draft head. Without a `draft.safetensors` file, skip step 7. The Hugging Face repository has a file with the draft head.
 
 Create the llama.cpp context with flash attention disabled (`LLAMA_FLASH_ATTN_TYPE_DISABLED`). Flash attention is not available on the compat path.
 
